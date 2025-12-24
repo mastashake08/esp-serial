@@ -1,10 +1,59 @@
 <script setup lang="ts">
-import { ref, onUnmounted } from 'vue'
+import { ref, onUnmounted, computed } from 'vue'
 import { useSerial } from '@/composables/useSerial'
+import { useBluetooth } from '@/composables/useBluetooth'
 import { createSerialReader } from '@/utils/serialTransforms'
+import { 
+  dataViewToString, 
+  stringToUint8Array, 
+  BLE_SERVICES, 
+  BLE_CHARACTERISTICS,
+  getServiceName,
+  getCharacteristicName
+} from '@/utils/bleTransforms'
 
-const { port, isConnected, error, requestPort, connect, disconnect, write } = useSerial()
+type ConnectionType = 'serial' | 'ble'
 
+// Connection type
+const connectionType = ref<ConnectionType>('serial')
+
+// Serial setup
+const { port, isConnected: isSerialConnected, error: serialError, requestPort, connect: connectSerial, disconnect: disconnectSerial, write: writeSerial } = useSerial()
+
+// BLE setup
+const { 
+  device, 
+  isConnected: isBleConnected, 
+  error: bleError, 
+  services,
+  currentService,
+  currentCharacteristic,
+  requestDevice, 
+  connect: connectBle, 
+  disconnect: disconnectBle,
+  getServices,
+  selectService,
+  getCharacteristics,
+  selectCharacteristic,
+  writeValue,
+  startNotifications
+} = useBluetooth()
+
+// Computed properties
+const isConnected = computed(() => 
+  connectionType.value === 'serial' ? isSerialConnected.value : isBleConnected.value
+)
+
+const error = computed(() => 
+  connectionType.value === 'serial' ? serialError.value : bleError.value
+)
+
+// BLE state
+const characteristics = ref<BluetoothRemoteGATTCharacteristic[]>([])
+const selectedServiceUuid = ref('')
+const selectedCharacteristicUuid = ref('')
+
+// Shared state
 const messages = ref<string[]>([])
 const inputMessage = ref('')
 const baudRate = ref(115200)
@@ -52,14 +101,31 @@ const stopReading = () => {
 
 // Handle connection
 const handleConnect = async () => {
-  if (!port.value) {
-    await requestPort()
-  }
-  
-  if (port.value) {
-    await connect(baudRate.value)
-    if (isConnected.value) {
-      await startReading()
+  if (connectionType.value === 'serial') {
+    if (!port.value) {
+      await requestPort()
+    }
+    
+    if (port.value) {
+      await connectSerial(baudRate.value)
+      if (isSerialConnected.value) {
+        await startReading()
+      }
+    }
+  } else {
+    // BLE connection
+    if (!device.value) {
+      await requestDevice({
+        filters: [{ services: [BLE_SERVICES.UART_SERVICE] }],
+        optionalServices: [BLE_SERVICES.DEVICE_INFORMATION]
+      })
+    }
+    
+    if (device.value) {
+      await connectBle()
+      if (isBleConnected.value) {
+        await getServices()
+      }
     }
   }
 }
@@ -67,8 +133,58 @@ const handleConnect = async () => {
 // Handle disconnection
 const handleDisconnect = async () => {
   stopReading()
-  await disconnect()
+  
+  if (connectionType.value === 'serial') {
+    await disconnectSerial()
+  } else {
+    await disconnectBle()
+    services.value = []
+    characteristics.value = []
+    selectedServiceUuid.value = ''
+    selectedCharacteristicUuid.value = ''
+  }
+  
   messages.value = []
+}
+
+// Handle service selection
+const handleServiceSelect = async () => {
+  if (!selectedServiceUuid.value) return
+  
+  await selectService(selectedServiceUuid.value)
+  if (currentService.value) {
+    characteristics.value = await getCharacteristics()
+  }
+}
+
+// Handle characteristic selection
+const handleCharacteristicSelect = async () => {
+  if (!selectedCharacteristicUuid.value) return
+  
+  await selectCharacteristic(selectedCharacteristicUuid.value, (event) => {
+    const target = event.target as BluetoothRemoteGATTCharacteristic
+    if (target.value) {
+      const message = dataViewToString(target.value)
+      messages.value.push(message)
+      setTimeout(() => {
+        messagesEndRef.value?.scrollIntoView({ behavior: 'smooth' })
+      }, 0)
+    }
+  })
+  
+  // Start notifications if characteristic supports it
+  if (currentCharacteristic.value?.properties.notify) {
+    await startNotifications((event) => {
+      const target = event.target as BluetoothRemoteGATTCharacteristic
+      if (target.value) {
+        const message = dataViewToString(target.value)
+        messages.value.push(message)
+        setTimeout(() => {
+          messagesEndRef.value?.scrollIntoView({ behavior: 'smooth' })
+        }, 0)
+      }
+    })
+  }
 }
 
 // Send message
@@ -77,7 +193,16 @@ const sendMessage = async () => {
     return
   }
   
-  await write(inputMessage.value + '\n')
+  if (connectionType.value === 'serial') {
+    await writeSerial(inputMessage.value + '\n')
+  } else {
+    // BLE write
+    if (currentCharacteristic.value) {
+      const data = stringToUint8Array(inputMessage.value + '\n')
+      await writeValue(data as BufferSource)
+    }
+  }
+  
   inputMessage.value = ''
 }
 
@@ -89,7 +214,11 @@ const clearMessages = () => {
 // Cleanup on unmount
 onUnmounted(() => {
   stopReading()
-  disconnect()
+  if (connectionType.value === 'serial') {
+    disconnectSerial()
+  } else {
+    disconnectBle()
+  }
 })
 </script>
 
@@ -98,13 +227,49 @@ onUnmounted(() => {
     <div class="max-w-4xl mx-auto">
       <!-- Header -->
       <div class="bg-white rounded-lg shadow-md p-6 mb-4">
-        <h1 class="text-3xl font-bold text-gray-800 mb-2">ESP Serial Monitor</h1>
-        <p class="text-gray-600">Connect to ESP devices via Web Serial API</p>
+        <h1 class="text-3xl font-bold text-gray-800 mb-2">ESP IoT Monitor</h1>
+        <p class="text-gray-600">Connect to ESP devices via Web Serial API or Bluetooth LE</p>
+      </div>
+
+      <!-- Connection Type Selector -->
+      <div class="bg-white rounded-lg shadow-md p-6 mb-4">
+        <h2 class="text-xl font-semibold text-gray-800 mb-4">Connection Type</h2>
+        <div class="flex gap-4">
+          <button
+            @click="connectionType = 'serial'"
+            :class="[
+              'px-6 py-3 rounded-md font-medium transition-all',
+              connectionType === 'serial'
+                ? 'bg-blue-600 text-white shadow-lg'
+                : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+            ]"
+            :disabled="isConnected"
+          >
+            Serial (USB)
+          </button>
+          <button
+            @click="connectionType = 'ble'"
+            :class="[
+              'px-6 py-3 rounded-md font-medium transition-all',
+              connectionType === 'ble'
+                ? 'bg-blue-600 text-white shadow-lg'
+                : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+            ]"
+            :disabled="isConnected"
+          >
+            Bluetooth LE
+          </button>
+        </div>
       </div>
 
       <!-- Connection Controls -->
       <div class="bg-white rounded-lg shadow-md p-6 mb-4">
-        <div class="flex flex-wrap gap-4 items-end">
+        <h2 class="text-xl font-semibold text-gray-800 mb-4">
+          {{ connectionType === 'serial' ? 'Serial Connection' : 'Bluetooth LE Connection' }}
+        </h2>
+        
+        <!-- Serial Options -->
+        <div v-if="connectionType === 'serial'" class="flex flex-wrap gap-4 items-end">
           <div class="flex-1 min-w-[200px]">
             <label for="baudRate" class="block text-sm font-medium text-gray-700 mb-1">
               Baud Rate
@@ -133,6 +298,70 @@ onUnmounted(() => {
             >
               Disconnect
             </button>
+          </div>
+        </div>
+
+        <!-- BLE Options -->
+        <div v-else class="space-y-4">
+          <div class="flex gap-2">
+            <button
+              v-if="!isConnected"
+              @click="handleConnect"
+              class="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors"
+            >
+              Connect to Device
+            </button>
+            <button
+              v-else
+              @click="handleDisconnect"
+              class="px-6 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 transition-colors"
+            >
+              Disconnect
+            </button>
+          </div>
+
+          <!-- Service Selection -->
+          <div v-if="isConnected && services.length > 0" class="space-y-2">
+            <label for="service" class="block text-sm font-medium text-gray-700">
+              Select Service
+            </label>
+            <select
+              id="service"
+              v-model="selectedServiceUuid"
+              @change="handleServiceSelect"
+              class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="">-- Choose a service --</option>
+              <option v-for="service in services" :key="service.uuid" :value="service.uuid">
+                {{ getServiceName(service.uuid) }} ({{ service.uuid }})
+              </option>
+            </select>
+          </div>
+
+          <!-- Characteristic Selection -->
+          <div v-if="currentService && characteristics.length > 0" class="space-y-2">
+            <label for="characteristic" class="block text-sm font-medium text-gray-700">
+              Select Characteristic
+            </label>
+            <select
+              id="characteristic"
+              v-model="selectedCharacteristicUuid"
+              @change="handleCharacteristicSelect"
+              class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="">-- Choose a characteristic --</option>
+              <option v-for="char in characteristics" :key="char.uuid" :value="char.uuid">
+                {{ getCharacteristicName(char.uuid) }} 
+                ({{ char.properties.read ? 'R' : '' }}{{ char.properties.write ? 'W' : '' }}{{ char.properties.notify ? 'N' : '' }})
+              </option>
+            </select>
+          </div>
+
+          <!-- Device Info -->
+          <div v-if="device" class="p-3 bg-blue-50 border border-blue-200 rounded-md">
+            <p class="text-sm text-blue-800">
+              <span class="font-medium">Device:</span> {{ device.name || 'Unknown' }}
+            </p>
           </div>
         </div>
 
@@ -191,17 +420,20 @@ onUnmounted(() => {
             v-model="inputMessage"
             type="text"
             placeholder="Type a message..."
-            :disabled="!isConnected"
+            :disabled="!isConnected || (connectionType === 'ble' && !currentCharacteristic)"
             class="flex-1 px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
           />
           <button
             type="submit"
-            :disabled="!isConnected || !inputMessage.trim()"
+            :disabled="!isConnected || !inputMessage.trim() || (connectionType === 'ble' && !currentCharacteristic)"
             class="px-6 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
             Send
           </button>
         </form>
+        <p v-if="connectionType === 'ble' && isConnected && !currentCharacteristic" class="mt-2 text-sm text-gray-500">
+          Select a characteristic to send messages
+        </p>
       </div>
     </div>
   </div>
