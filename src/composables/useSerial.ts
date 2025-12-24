@@ -1,6 +1,8 @@
 import { ref, type Ref } from 'vue'
+import { SerialManager } from '@mastashake08/web-iot'
 
 interface UseSerialReturn {
+  manager: Ref<SerialManager | null>
   port: Ref<SerialPort | null>
   isConnected: Ref<boolean>
   error: Ref<string | null>
@@ -9,15 +11,21 @@ interface UseSerialReturn {
   disconnect: () => Promise<void>
   write: (data: string) => Promise<void>
   reader: Ref<ReadableStreamDefaultReader<string> | null>
-  writer: Ref<WritableStreamDefaultWriter<Uint8Array> | null>
 }
 
 export function useSerial(): UseSerialReturn {
+  const manager = ref<SerialManager | null>(null)
   const port = ref<SerialPort | null>(null)
   const isConnected = ref(false)
   const error = ref<string | null>(null)
   const reader = ref<ReadableStreamDefaultReader<string> | null>(null)
-  const writer = ref<WritableStreamDefaultWriter<Uint8Array> | null>(null)
+
+  // Initialize SerialManager
+  const initManager = () => {
+    if (!manager.value) {
+      manager.value = new SerialManager(false)
+    }
+  }
 
   // Request serial port from user
   const requestPort = async () => {
@@ -28,7 +36,13 @@ export function useSerial(): UseSerialReturn {
         throw new Error('Web Serial API not supported in this browser')
       }
 
-      port.value = await navigator.serial.requestPort()
+      initManager()
+
+      if (!manager.value) {
+        throw new Error('Failed to initialize Serial Manager')
+      }
+
+      port.value = await manager.value.requestPort()
     } catch (err) {
       error.value = err instanceof Error ? err.message : 'Failed to request port'
       console.error('Port request failed:', err)
@@ -37,7 +51,7 @@ export function useSerial(): UseSerialReturn {
 
   // Connect to selected port
   const connect = async (baudRate = 115200) => {
-    if (!port.value) {
+    if (!manager.value || !port.value) {
       error.value = 'No port selected'
       return
     }
@@ -45,13 +59,8 @@ export function useSerial(): UseSerialReturn {
     try {
       error.value = null
       
-      await port.value.open({ baudRate })
+      await manager.value.openPort({ baudRate })
       isConnected.value = true
-
-      // Set up writer for sending data
-      if (port.value.writable) {
-        writer.value = port.value.writable.getWriter()
-      }
     } catch (err) {
       error.value = err instanceof Error ? err.message : 'Failed to connect'
       console.error('Connection failed:', err)
@@ -70,15 +79,9 @@ export function useSerial(): UseSerialReturn {
         reader.value = null
       }
 
-      // Release writer if active
-      if (writer.value) {
-        await writer.value.close()
-        writer.value = null
-      }
-
       // Close port
-      if (port.value) {
-        await port.value.close()
+      if (manager.value && port.value) {
+        await manager.value.closePort()
         port.value = null
       }
 
@@ -91,7 +94,7 @@ export function useSerial(): UseSerialReturn {
 
   // Write data to serial port
   const write = async (data: string) => {
-    if (!writer.value) {
+    if (!manager.value || !isConnected.value) {
       error.value = 'No active connection'
       return
     }
@@ -99,7 +102,7 @@ export function useSerial(): UseSerialReturn {
     try {
       error.value = null
       const encoder = new TextEncoder()
-      await writer.value.write(encoder.encode(data))
+      await manager.value.writeData(encoder.encode(data))
     } catch (err) {
       error.value = err instanceof Error ? err.message : 'Failed to write data'
       console.error('Write failed:', err)
@@ -107,6 +110,7 @@ export function useSerial(): UseSerialReturn {
   }
 
   return {
+    manager,
     port,
     isConnected,
     error,
@@ -114,7 +118,6 @@ export function useSerial(): UseSerialReturn {
     connect,
     disconnect,
     write,
-    reader,
-    writer
+    reader
   }
 }
