@@ -170,7 +170,8 @@ const handleConnect = async () => {
           'generic_access',
           'generic_attribute',
           '00001800-0000-1000-8000-00805f9b34fb', // Generic Access
-          '00001801-0000-1000-8000-00805f9b34fb'  // Generic Attribute
+          '00001801-0000-1000-8000-00805f9b34fb',  // Generic Attribute
+          '4fafc201-1fb5-459e-8fcc-c5c9c331914b'
         ]
       }
       
