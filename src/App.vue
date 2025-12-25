@@ -96,6 +96,9 @@ const startReading = async () => {
             messagesEndRef.value?.scrollIntoView({ behavior: 'smooth' })
           }, 0)
         }
+        
+        // Small yield to keep UI responsive
+        await new Promise(resolve => setTimeout(resolve, 0))
       } catch (readError) {
         if (isReading.value) {
           console.error('Read error:', readError)
