@@ -134,7 +134,8 @@ const handleConnect = async () => {
     if (port.value) {
       await connectSerial(baudRate.value)
       if (isSerialConnected.value) {
-        await startReading()
+        // Start reading in the background without blocking
+        startReading()
       }
     }
   } else {
