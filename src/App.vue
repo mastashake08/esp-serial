@@ -51,6 +51,8 @@ const error = computed(() =>
 const characteristics = ref<BluetoothRemoteGATTCharacteristic[]>([])
 const selectedServiceUuid = ref('')
 const selectedCharacteristicUuid = ref('')
+const customServiceUuid = ref('12345678-1234-1234-1234-123456789012')
+const deviceNamePrefix = ref('')
 
 // Shared state
 const messages = ref<string[]>([])
@@ -161,15 +163,26 @@ const handleConnect = async () => {
   } else {
     // BLE connection
     if (!device.value) {
-      // Accept all devices but include custom ESP service UUID
-      await requestDevice({
-        acceptAllDevices: true,
+      // Use filters to access all services on matched devices
+      const options: any = {
         optionalServices: [
-          '12345678-1234-1234-1234-123456789012',
+          customServiceUuid.value,
           'generic_access',
-          'generic_attribute'
+          'generic_attribute',
+          '00001800-0000-1000-8000-00805f9b34fb', // Generic Access
+          '00001801-0000-1000-8000-00805f9b34fb'  // Generic Attribute
         ]
-      })
+      }
+      
+      if (deviceNamePrefix.value.trim()) {
+        // Filter by device name prefix
+        options.filters = [{ namePrefix: deviceNamePrefix.value.trim() }]
+      } else {
+        // Accept all devices
+        options.acceptAllDevices = true
+      }
+      
+      await requestDevice(options)
     }
     
     if (device.value) {
@@ -365,6 +378,34 @@ onUnmounted(async () => {
 
         <!-- BLE Options -->
         <div v-else class="space-y-4">
+          <!-- BLE Configuration -->
+          <div v-if="!isConnected" class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label for="customServiceUuid" class="block text-sm font-medium text-gray-700 mb-1">
+                Custom Service UUID
+              </label>
+              <input
+                id="customServiceUuid"
+                v-model="customServiceUuid"
+                type="text"
+                placeholder="12345678-1234-1234-1234-123456789012"
+                class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm font-mono"
+              />
+            </div>
+            <div>
+              <label for="deviceNamePrefix" class="block text-sm font-medium text-gray-700 mb-1">
+                Device Name Filter (optional)
+              </label>
+              <input
+                id="deviceNamePrefix"
+                v-model="deviceNamePrefix"
+                type="text"
+                placeholder="ESP32"
+                class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+          </div>
+          
           <div class="flex gap-2">
             <button
               v-if="!isConnected"
