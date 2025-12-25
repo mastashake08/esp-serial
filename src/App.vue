@@ -225,7 +225,7 @@ const handleServiceSelect = async () => {
     
     // Auto-select first writable characteristic
     const writableChars = characteristics.value.filter(c => c.properties.write || c.properties.writeWithoutResponse)
-    if (writableChars.length === 1) {
+    if (writableChars.length === 1 && writableChars[0]) {
       selectedCharacteristicUuid.value = writableChars[0].uuid
       await handleCharacteristicSelect()
     }
