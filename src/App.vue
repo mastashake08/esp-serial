@@ -176,8 +176,14 @@ const handleConnect = async () => {
       await connectBle()
       if (isBleConnected.value) {
         try {
-          await getServices()
-          console.log('Services found:', services.value)
+          // Get services directly from the GATT server
+          if (device.value.gatt?.connected) {
+            const gattServices = await device.value.gatt.getPrimaryServices()
+            services.value = gattServices
+            console.log('Services found:', gattServices.map(s => s.uuid))
+          } else {
+            await getServices()
+          }
         } catch (err) {
           console.error('Error getting services:', err)
         }
