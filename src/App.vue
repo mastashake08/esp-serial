@@ -59,6 +59,7 @@ const inputMessage = ref('')
 const baudRate = ref(115200)
 const isReading = ref(false)
 const messagesEndRef = ref<HTMLElement | null>(null)
+const serialReader = ref<ReadableStreamDefaultReader<string> | null>(null)
 
 // Start reading from serial port
 const startReading = async () => {
@@ -69,10 +70,10 @@ const startReading = async () => {
   isReading.value = true
   
   try {
-    const reader = createSerialReader(port.value).getReader()
+    serialReader.value = createSerialReader(port.value).getReader()
     
     while (isReading.value) {
-      const { value, done } = await reader.read()
+      const { value, done } = await serialReader.value.read()
       
       if (done) {
         break
@@ -87,16 +88,40 @@ const startReading = async () => {
       }
     }
     
-    reader.releaseLock()
+    if (serialReader.value) {
+      serialReader.value.releaseLock()
+      serialReader.value = null
+    }
   } catch (err) {
     console.error('Reading error:', err)
     isReading.value = false
+    if (serialReader.value) {
+      try {
+        serialReader.value.releaseLock()
+      } catch (e) {
+        // Reader may already be released
+      }
+      serialReader.value = null
+    }
   }
 }
 
 // Stop reading from serial port
-const stopReading = () => {
+const stopReading = async () => {
   isReading.value = false
+  
+  // Wait a moment for the read loop to finish
+  await new Promise(resolve => setTimeout(resolve, 100))
+  
+  // Release the reader if it's still active
+  if (serialReader.value) {
+    try {
+      await serialReader.value.cancel()
+      serialReader.value = null
+    } catch (err) {
+      console.error('Error canceling reader:', err)
+    }
+  }
 }
 
 // Handle connection
@@ -132,7 +157,7 @@ const handleConnect = async () => {
 
 // Handle disconnection
 const handleDisconnect = async () => {
-  stopReading()
+  await stopReading()
   
   if (connectionType.value === 'serial') {
     await disconnectSerial()
@@ -212,12 +237,12 @@ const clearMessages = () => {
 }
 
 // Cleanup on unmount
-onUnmounted(() => {
-  stopReading()
+onUnmounted(async () => {
+  await stopReading()
   if (connectionType.value === 'serial') {
-    disconnectSerial()
+    await disconnectSerial()
   } else {
-    disconnectBle()
+    await disconnectBle()
   }
 })
 </script>
