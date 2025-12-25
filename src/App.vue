@@ -229,6 +229,13 @@ const handleServiceSelect = async () => {
   await selectService(selectedServiceUuid.value)
   if (currentService.value) {
     characteristics.value = await getCharacteristics()
+    
+    // Auto-select first writable characteristic
+    const writableChars = characteristics.value.filter(c => c.properties.write || c.properties.writeWithoutResponse)
+    if (writableChars.length === 1) {
+      selectedCharacteristicUuid.value = writableChars[0].uuid
+      await handleCharacteristicSelect()
+    }
   }
 }
 
@@ -455,7 +462,8 @@ onUnmounted(async () => {
               <option value="">-- Choose a characteristic --</option>
               <option v-for="char in characteristics" :key="char.uuid" :value="char.uuid">
                 {{ getCharacteristicName(char.uuid) }} 
-                ({{ char.properties.read ? 'R' : '' }}{{ char.properties.write ? 'W' : '' }}{{ char.properties.notify ? 'N' : '' }})
+                [{{ char.properties.read ? 'R' : '' }}{{ char.properties.write || char.properties.writeWithoutResponse ? 'W' : '' }}{{ char.properties.notify ? 'N' : '' }}]
+                {{ (char.properties.write || char.properties.writeWithoutResponse) ? '✓' : '' }}
               </option>
             </select>
           </div>
@@ -535,7 +543,10 @@ onUnmounted(async () => {
           </button>
         </form>
         <p v-if="connectionType === 'ble' && isConnected && !currentCharacteristic" class="mt-2 text-sm text-gray-500">
-          Select a characteristic to send messages
+          {{ !currentService ? 'Select a service first' : characteristics.length === 0 ? 'No characteristics found' : 'Select a writable characteristic to send messages' }}
+        </p>
+        <p v-if="connectionType === 'ble' && isConnected && currentCharacteristic && !currentCharacteristic.properties.write && !currentCharacteristic.properties.writeWithoutResponse" class="mt-2 text-sm text-orange-600">
+          ⚠️ Selected characteristic is not writable
         </p>
       </div>
     </div>
