@@ -161,9 +161,14 @@ const handleConnect = async () => {
   } else {
     // BLE connection
     if (!device.value) {
+      // Use acceptAllDevices to see all available BLE devices
       await requestDevice({
-        filters: [{ services: [BLE_SERVICES.UART_SERVICE] }],
-        optionalServices: [BLE_SERVICES.DEVICE_INFORMATION]
+        acceptAllDevices: true,
+        optionalServices: [
+          BLE_SERVICES.UART_SERVICE,
+          BLE_SERVICES.DEVICE_INFORMATION,
+          BLE_SERVICES.BATTERY_SERVICE
+        ]
       })
     }
     
