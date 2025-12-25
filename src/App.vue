@@ -161,13 +161,13 @@ const handleConnect = async () => {
   } else {
     // BLE connection
     if (!device.value) {
-      // Use acceptAllDevices to see all available BLE devices
+      // Accept all devices but include custom ESP service UUID
       await requestDevice({
         acceptAllDevices: true,
         optionalServices: [
-          BLE_SERVICES.UART_SERVICE,
-          BLE_SERVICES.DEVICE_INFORMATION,
-          BLE_SERVICES.BATTERY_SERVICE
+          '12345678-1234-1234-1234-123456789012',
+          'generic_access',
+          'generic_attribute'
         ]
       })
     }
@@ -175,7 +175,12 @@ const handleConnect = async () => {
     if (device.value) {
       await connectBle()
       if (isBleConnected.value) {
-        await getServices()
+        try {
+          await getServices()
+          console.log('Services found:', services.value)
+        } catch (err) {
+          console.error('Error getting services:', err)
+        }
       }
     }
   }
