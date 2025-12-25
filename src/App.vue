@@ -2,7 +2,6 @@
 import { ref, onUnmounted, computed } from 'vue'
 import { useSerial } from '@/composables/useSerial'
 import { useBluetooth } from '@/composables/useBluetooth'
-import { createSerialReader } from '@/utils/serialTransforms'
 import { 
   dataViewToString, 
   stringToUint8Array, 
@@ -70,26 +69,47 @@ const startReading = async () => {
   isReading.value = true
   
   try {
-    serialReader.value = createSerialReader(port.value).getReader()
+    const textDecoder = new TextDecoder()
+    const reader = port.value.readable.getReader()
+    serialReader.value = reader as any
     
-    while (isReading.value) {
-      const { value, done } = await serialReader.value.read()
-      
-      if (done) {
+    while (isReading.value && port.value.readable) {
+      try {
+        const { value, done } = await reader.read()
+        
+        if (done) {
+          break
+        }
+        
+        if (value) {
+          // Decode the Uint8Array to string
+          const text = textDecoder.decode(value)
+          // Split by lines and add to messages
+          const lines = text.split('\n')
+          for (const line of lines) {
+            if (line.trim()) {
+              messages.value.push(line)
+            }
+          }
+          // Auto-scroll to bottom
+          setTimeout(() => {
+            messagesEndRef.value?.scrollIntoView({ behavior: 'smooth' })
+          }, 0)
+        }
+      } catch (readError) {
+        if (isReading.value) {
+          console.error('Read error:', readError)
+        }
         break
-      }
-      
-      if (value) {
-        messages.value.push(value)
-        // Auto-scroll to bottom
-        setTimeout(() => {
-          messagesEndRef.value?.scrollIntoView({ behavior: 'smooth' })
-        }, 0)
       }
     }
     
-    if (serialReader.value) {
-      serialReader.value.releaseLock()
+    if (reader) {
+      try {
+        reader.releaseLock()
+      } catch (e) {
+        // Reader may already be released
+      }
       serialReader.value = null
     }
   } catch (err) {
@@ -97,7 +117,7 @@ const startReading = async () => {
     isReading.value = false
     if (serialReader.value) {
       try {
-        serialReader.value.releaseLock()
+        (serialReader.value as any).releaseLock()
       } catch (e) {
         // Reader may already be released
       }
@@ -110,13 +130,10 @@ const startReading = async () => {
 const stopReading = async () => {
   isReading.value = false
   
-  // Wait a moment for the read loop to finish
-  await new Promise(resolve => setTimeout(resolve, 100))
-  
   // Release the reader if it's still active
   if (serialReader.value) {
     try {
-      await serialReader.value.cancel()
+      await (serialReader.value as any).cancel()
       serialReader.value = null
     } catch (err) {
       console.error('Error canceling reader:', err)
