@@ -164,7 +164,7 @@ const handleConnect = async () => {
     if (!device.value) {
       // Simple device request - use name filter if provided, otherwise accept all
       const options: any = {
-        optionalServices: [] // Will get all services from GATT
+        optionalServices: ['12345678-1234-1234-1234-123456789012'] // Will get all services from GATT
       }
       
       if (deviceNamePrefix.value.trim()) {
