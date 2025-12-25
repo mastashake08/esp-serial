@@ -51,6 +51,7 @@ const error = computed(() =>
 const characteristics = ref<BluetoothRemoteGATTCharacteristic[]>([])
 const selectedServiceUuid = ref('')
 const selectedCharacteristicUuid = ref('')
+const customServiceUuid = ref('12345678-1234-1234-1234-123456789012')
 const deviceNamePrefix = ref('')
 
 // Shared state
@@ -164,7 +165,17 @@ const handleConnect = async () => {
     if (!device.value) {
       // Simple device request - use name filter if provided, otherwise accept all
       const options: any = {
-        optionalServices: ['12345678-1234-1234-1234-123456789012'] // Will get all services from GATT
+        optionalServices: [
+          customServiceUuid.value, // Custom ESP service
+          '4fafc201-1fb5-459e-8fcc-c5c9c331914b', // Another common ESP UUID
+          'generic_access',
+          'generic_attribute',
+          '00001800-0000-1000-8000-00805f9b34fb', // Generic Access
+          '00001801-0000-1000-8000-00805f9b34fb', // Generic Attribute
+          BLE_SERVICES.UART_SERVICE,
+          BLE_SERVICES.DEVICE_INFORMATION,
+          BLE_SERVICES.BATTERY_SERVICE
+        ]
       }
       
       if (deviceNamePrefix.value.trim()) {
@@ -379,20 +390,34 @@ onUnmounted(async () => {
         <!-- BLE Options -->
         <div v-else class="space-y-4">
           <!-- BLE Configuration -->
-          <div v-if="!isConnected">
-            <label for="deviceNamePrefix" class="block text-sm font-medium text-gray-700 mb-1">
-              Device Name Filter (optional)
-            </label>
-            <input
-              id="deviceNamePrefix"
-              v-model="deviceNamePrefix"
-              type="text"
-              placeholder="ESP32 or leave empty for all devices"
-              class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-            <p class="mt-1 text-xs text-gray-500">
-              Tip: Filtering by name gives access to all device services
-            </p>
+          <div v-if="!isConnected" class="space-y-4">
+            <div>
+              <label for="customServiceUuid" class="block text-sm font-medium text-gray-700 mb-1">
+                Custom Service UUID
+              </label>
+              <input
+                id="customServiceUuid"
+                v-model="customServiceUuid"
+                type="text"
+                placeholder="12345678-1234-1234-1234-123456789012"
+                class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm font-mono"
+              />
+            </div>
+            <div>
+              <label for="deviceNamePrefix" class="block text-sm font-medium text-gray-700 mb-1">
+                Device Name Filter (optional)
+              </label>
+              <input
+                id="deviceNamePrefix"
+                v-model="deviceNamePrefix"
+                type="text"
+                placeholder="ESP32 or leave empty for all devices"
+                class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+              <p class="mt-1 text-xs text-gray-500">
+                Tip: Filtering by name gives access to all device services
+              </p>
+            </div>
           </div>
           
           <div class="flex gap-2">
